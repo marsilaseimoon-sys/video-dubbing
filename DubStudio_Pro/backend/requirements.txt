@@ -1,0 +1,14 @@
+flask==3.0.0
+flask-cors==4.0.0
+werkzeug==3.0.1
+openai-whisper
+deep-translator
+edge-tts
+gTTS
+pydub
+pytubefix
+yt-dlp
+numpy
+scipy
+pytest
+qrcode

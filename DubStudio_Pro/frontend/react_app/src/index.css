@@ -1,0 +1,130 @@
+/* ─── GLOBAL RESET + DARK BACKGROUND ─────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  scroll-behavior: smooth;
+  background: #06060e;
+}
+
+body {
+  background: #06060e !important;
+  color: #ede8ff;
+  font-family: 'DM Sans', 'Bricolage Grotesque', sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+#root {
+  background: #06060e;
+  min-height: 100vh;
+}
+
+a { text-decoration: none; color: inherit; }
+button { cursor: pointer; font-family: inherit; }
+img { max-width: 100%; }
+
+::-webkit-scrollbar { width: 4px; background: #06060e; }
+::-webkit-scrollbar-thumb { background: rgba(255,107,53,.25); border-radius: 2px; }
+
+/* ─── CSS VARIABLES ──────────────────────────────────── */
+:root {
+  --bg:        #06060e;
+  --card:      rgba(10,10,20,.8);
+  --border:    rgba(255,107,53,.12);
+  --orange:    #ff6b35;
+  --orange2:   #f7c59f;
+  --purple:    #a855f7;
+  --text:      #ede8ff;
+  --muted:     rgba(200,185,255,.4);
+  --success:   #34d399;
+  --danger:    #f87171;
+  --grad:      linear-gradient(135deg, #ff6b35, #e85d24);
+  --font-head: 'Syne', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ─── SHARED ANIMATIONS ──────────────────────────────── */
+@keyframes fadeUp    { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+@keyframes fadeIn    { from{opacity:0} to{opacity:1} }
+@keyframes popIn     { 0%{transform:scale(.92);opacity:0} 70%{transform:scale(1.02)} 100%{transform:scale(1);opacity:1} }
+@keyframes spin      { to{transform:rotate(360deg)} }
+@keyframes shimmer   { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+@keyframes float     { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+@keyframes pulse     { 0%,100%{opacity:.6} 50%{opacity:1} }
+@keyframes waveBar   { from{transform:scaleY(1)} to{transform:scaleY(.25)} }
+@keyframes logoShift { 0%,100%{background-position:0% 50%} 50%{background-position:100% 50%} }
+@keyframes glow      { 0%,100%{box-shadow:0 0 12px rgba(255,107,53,.2)} 50%{box-shadow:0 0 28px rgba(255,107,53,.55)} }
+@keyframes borderPulse { 0%,100%{border-color:rgba(255,107,53,.25)} 50%{border-color:rgba(255,107,53,.6)} }
+@keyframes orb1      { 0%,100%{transform:translate(0,0)} 50%{transform:translate(40px,-30px)} }
+@keyframes orb2      { 0%,100%{transform:translate(0,0)} 50%{transform:translate(-30px,40px)} }
+@keyframes tickerScroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+@keyframes slideDown { from{opacity:0;transform:translateY(-12px)} to{opacity:1;transform:translateY(0)} }
+@keyframes dropIn    { from{opacity:0;transform:translateY(-6px) scale(.97)} to{opacity:1;transform:translateY(0) scale(1)} }
+
+/* ─── SHARED UTILITY CLASSES ─────────────────────────── */
+.gt {
+  background: linear-gradient(135deg, #ff6b35 0%, #f7c59f 40%, #ff6b35 80%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 4s linear infinite;
+}
+.gt2 {
+  background: linear-gradient(135deg, #f0abfc, #a855f7);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--grad); border: none; color: white;
+  padding: 11px 26px; border-radius: 50px;
+  font-family: var(--font-head); font-weight: 700; font-size: .9rem;
+  cursor: pointer; transition: all .25s;
+  box-shadow: 0 4px 20px rgba(255,107,53,.35);
+  position: relative; overflow: hidden;
+}
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(255,107,53,.55); }
+
+.btn-outline {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: transparent; border: 1.5px solid rgba(255,107,53,.3);
+  color: rgba(200,185,255,.75); padding: 10px 24px; border-radius: 50px;
+  font-family: var(--font-body); font-weight: 600; font-size: .88rem;
+  cursor: pointer; transition: all .25s;
+}
+.btn-outline:hover { border-color: var(--orange); color: #ede8ff; background: rgba(255,107,53,.08); }
+
+.glass {
+  background: var(--card); border: 1px solid rgba(255,255,255,.07);
+  border-radius: 20px; backdrop-filter: blur(20px);
+  box-shadow: 0 8px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03);
+}
+
+.tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 20px;
+  background: rgba(255,107,53,.1); border: 1px solid rgba(255,107,53,.22);
+  color: #ff9a6c; font-size: .7rem; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+
+.section { padding: 6rem 1.5rem; max-width: 1160px; margin: 0 auto; }
+.sec-header { text-align: center; margin-bottom: 3.5rem; }
+.sec-title {
+  font-family: var(--font-head); font-size: clamp(1.9rem, 4vw, 2.9rem);
+  font-weight: 700; line-height: 1.12; letter-spacing: -.02em;
+  color: var(--text); margin: .75rem 0;
+}
+.sec-sub { color: var(--muted); font-size: .95rem; max-width: 480px; margin: 0 auto; line-height: 1.7; }
+
+.divider { border: none; border-top: 1px solid rgba(255,255,255,.06); margin: 0; }
+
+.spin { display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top:2px solid white;border-radius:50%;animation:spin .7s linear infinite; }
+
+@media (max-width: 640px) { .section { padding: 4rem 1rem; } }

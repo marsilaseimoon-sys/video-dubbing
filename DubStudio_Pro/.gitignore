@@ -1,0 +1,12 @@
+node_modules/ 
+__pycache__/ 
+*.pyc 
+*.pth 
+*.wav 
+*.mp4 
+*.db 
+*.pt 
+dubbed_videos/ 
+model_cache/ 
+uploads/ 
+voice_samples/ 
