@@ -710,7 +710,7 @@ def get_whisper():
     import whisper
     import concurrent.futures
 
-    name      = os.environ.get("WHISPER_MODEL", "small")   # FIX: medium→small (faster, less RAM)
+    name      = os.environ.get("WHISPER_MODEL", "small")   # small model — fast & lightweight
     cache_dir = os.path.join(MODEL_CACHE_DIR, "whisper")
     os.makedirs(cache_dir, exist_ok=True)
 
@@ -728,11 +728,11 @@ def get_whisper():
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             fut = pool.submit(_try_load)
-            _WHISPER_MODEL = fut.result(timeout=300)   # 5 min max wait
+            _WHISPER_MODEL = fut.result(timeout=600)   # 10 min max wait — medium model ke liye
         print(f"[Whisper] '{name}' ready. Cached at: {cache_dir}")
         return _WHISPER_MODEL
     except concurrent.futures.TimeoutError:
-        print(f"[Whisper] Load timeout (300s) — model too slow to load")
+        print(f"[Whisper] Load timeout (600s) — model too slow to load")
         return None
     except Exception as e:
         err = str(e)
