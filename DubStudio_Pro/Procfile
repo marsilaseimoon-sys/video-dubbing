@@ -1,0 +1,1 @@
+web: cd DubStudio_Pro/backend && python App.py
