@@ -1,5 +1,5 @@
 """
-DubStudio Pro — video_dubbing.py v6.0
+DubStudio Pro — video_dubbing.py v6.2
 ✔ Character-type voice system:
     boy(0-12)  girl(0-12)  teen_boy(13-17)  teen_girl(13-17)
     young_man(18-30)  young_woman(18-30)
@@ -11,6 +11,19 @@ DubStudio Pro — video_dubbing.py v6.0
 ✔ v6.0: Fixed gender assignment bug (no more male/female flip)
 ✔ v6.0: Wav2Lip checkpoint auto-detection from multiple locations
 ✔ v6.0: Improved audio-based gender detection using pitch (fundamental frequency)
+✔ v6.1 CPU FIXES:
+    - Whisper default: small → medium (better accuracy, especially Urdu/Hindi)
+    - Wav2Lip CPU mode: resize_factor=2 (~4x faster on CPU), smaller batches
+    - Wav2Lip timeout: 900s → 1800s (CPU ke liye zyada waqt)
+    - Extended checkpoint/inference.py search paths
+    - Whisper: condition_on_previous_text=False (speed boost)
+✔ v6.2 CHARACTER VOICE FIXES:
+    - No-diarization fallback: gap-based speaker switching (1.5s gap = new speaker)
+      instead of broken i%len(keys) alternating — same speaker ab consecutive segments mein same awaaz pata hai
+    - synthesize_line: char_type live profile se liya jaata hai (not stale seg dict)
+    - Pipeline: char_type & gender refreshed in segments after assignment
+    - CharacterProfile.char_type: child_female gender support added
+    - assign_speakers_to_segments: function state reset on each call (no leak)
 """
 
 import os, sys, subprocess, re, asyncio
@@ -52,8 +65,8 @@ HAS_INSIGHTFACE= _has("insightface")
 HAS_PYANNOTE   = _has("pyannote")
 HAS_WHISPER    = _has("whisper")
 
-print(f"[DubStudio v6] whisper={HAS_WHISPER} cv2={HAS_CV2} insightface={HAS_INSIGHTFACE} edge_tts={HAS_EDGE_TTS} pydub={HAS_PYDUB}")
-print(f"[DubStudio v6] Model cache: {MODEL_CACHE_DIR}")
+print(f"[DubStudio v6.1] whisper={HAS_WHISPER} cv2={HAS_CV2} insightface={HAS_INSIGHTFACE} edge_tts={HAS_EDGE_TTS} pydub={HAS_PYDUB}")
+print(f"[DubStudio v6.1] Model cache: {MODEL_CACHE_DIR}")
 
 # ══════════════════════════════════════════════════════════════
 # WAV2LIP CHECKPOINT FINDER
@@ -64,17 +77,23 @@ def find_wav2lip_checkpoint():
     """
     Search for Wav2Lip checkpoint in multiple locations.
     Returns (checkpoint_path, inference_path) or (None, None).
+    v6.1: Added more search paths — uploads, home dir, etc.
     """
     # Possible checkpoint filenames
-    ck_names = ["Wav2Lip.pth", "wav2lip.pth", "wav2lip_gan.pth", "Wav2Lip_GAN.pth"]
+    ck_names = ["Wav2Lip.pth", "wav2lip.pth", "wav2lip_gan.pth", "Wav2Lip_GAN.pth",
+                "wav2lip.pth", "checkpoint_step000000000.pth"]
 
-    # Possible directories to search
+    # Possible directories to search (expanded for v6.1)
     search_dirs = [
         WAV2LIP_DIR,
         os.path.join(WAV2LIP_DIR, "checkpoints"),
         os.path.join(BASE_DIR, "checkpoints"),
         os.path.join(BASE_DIR, "models"),
+        os.path.join(BASE_DIR, "Wav2Lip", "checkpoints"),
         BASE_DIR,
+        os.path.expanduser("~"),                              # home directory
+        os.path.expanduser("~/Wav2Lip"),
+        os.path.expanduser("~/Wav2Lip/checkpoints"),
     ]
 
     checkpoint = None
@@ -88,10 +107,13 @@ def find_wav2lip_checkpoint():
         if checkpoint:
             break
 
-    # Find inference.py
+    # Find inference.py — expanded search
     inference_candidates = [
         os.path.join(WAV2LIP_DIR, "inference.py"),
         os.path.join(BASE_DIR, "inference.py"),
+        os.path.join(BASE_DIR, "Wav2Lip", "inference.py"),
+        os.path.expanduser("~/Wav2Lip/inference.py"),
+        os.path.expanduser("~/inference.py"),
     ]
     inference = next((p for p in inference_candidates if os.path.exists(p)), None)
 
@@ -104,7 +126,10 @@ def find_wav2lip_checkpoint():
         print(f"[Wav2Lip] Place checkpoint as: {os.path.join(WAV2LIP_DIR, 'Wav2Lip.pth')}")
 
     if not inference:
-        print(f"[Wav2Lip] ⚠ inference.py not found in {WAV2LIP_DIR}")
+        print(f"[Wav2Lip] ⚠ inference.py not found. Searched:")
+        for p in inference_candidates:
+            print(f"  - {p}")
+        print(f"[Wav2Lip] Place inference.py in: {WAV2LIP_DIR}/")
 
     return checkpoint, inference
 
@@ -345,7 +370,10 @@ class CharacterProfile:
     def char_type(self):
         g = self.gender or "male"
         if g == "child":
-            return "boy"
+            # FIX: child gender ke liye age/gender dono check karo
+            return get_character_type("male", 8)  # default child = boy age 8
+        if g == "child_female":
+            return get_character_type("female", 8)
         return get_character_type(g, self.age)
 
     def describe(self):
@@ -710,7 +738,16 @@ def get_whisper():
     import whisper
     import concurrent.futures
 
-    name      = os.environ.get("WHISPER_MODEL", "small")   # small model — fast & lightweight
+    # RAM check — medium model 1.5GB chahiye, small sirf 500MB
+    # 7.8GB RAM wale system mein medium se hang hota tha
+    try:
+        import psutil
+        free_ram_gb = psutil.virtual_memory().available / (1024**3)
+    except ImportError:
+        free_ram_gb = 2.0  # psutil nahi — safe default
+    default_model = "small" if free_ram_gb < 3.0 else "medium"
+    print(f"[Whisper] Free RAM: {free_ram_gb:.1f}GB — using '{default_model}' model")
+    name = os.environ.get("WHISPER_MODEL", default_model)
     cache_dir = os.path.join(MODEL_CACHE_DIR, "whisper")
     os.makedirs(cache_dir, exist_ok=True)
 
@@ -730,6 +767,7 @@ def get_whisper():
             fut = pool.submit(_try_load)
             _WHISPER_MODEL = fut.result(timeout=600)   # 10 min max wait — medium model ke liye
         print(f"[Whisper] '{name}' ready. Cached at: {cache_dir}")
+        import gc; gc.collect()   # Extra RAM free karo model load ke baad
         return _WHISPER_MODEL
     except concurrent.futures.TimeoutError:
         print(f"[Whisper] Load timeout (600s) — model too slow to load")
@@ -779,16 +817,27 @@ def transcribe_audio_with_timestamps(audio_path, progress_callback=None):
     try:
         result = model.transcribe(
             audio_path,
-            word_timestamps=True,
+            word_timestamps=False,  # RAM bachao — word level timestamps nahi chahiye
             task="transcribe",
             verbose=False,
-            fp16=False,
+            fp16=False,             # CPU pe fp16 kaam nahi karta
             temperature=0,
             best_of=1,
-            beam_size=1,
+            beam_size=1,            # CPU pe beam_size=1 fastest hai
+            condition_on_previous_text=False,  # Speed boost
         )
         segs = result.get("segments", [])
         print(f"[Whisper] {len(segs)} segments transcribed")
+
+        # RAM free karo — transcription ke baad model ki zaroorat nahi
+        global _WHISPER_MODEL
+        _WHISPER_MODEL = None
+        import gc, torch as _t
+        gc.collect()
+        try: _t.cuda.empty_cache()
+        except: pass
+        print("[Whisper] Model unloaded — RAM free kiya")
+
         if progress_callback:
             progress_callback(stage="transcribe", status="completed", progress=42,
                               message=f"Transcribed {len(segs)} segments")
@@ -809,7 +858,14 @@ def assign_speakers_to_segments(whisper_segs, diarization, profiles,
     - Uses speaker_gender_map (pitch-based) to assign correct gender
     - No more alternating i%len(keys) fallback that caused gender flip
     - Each speaker gets consistent voice throughout video
+    v6.2 Fix:
+    - No-diarization fallback uses gap-based speaker change (not i%len)
+    - synthesize_line now reads char_type from live profile (not stale seg dict)
     """
+    # Reset function-level state for no-diarization fallback
+    assign_speakers_to_segments._last_speaker = None
+    assign_speakers_to_segments._last_end     = 0
+    assign_speakers_to_segments._speaker_idx  = 0
     if not profiles:
         profiles = {
             "CHAR_00": CharacterProfile("CHAR_00", gender="male",   age=30),
@@ -822,7 +878,7 @@ def assign_speakers_to_segments(whisper_segs, diarization, profiles,
     # This ensures same diarization speaker always maps to same character
     diar_to_char = {}
 
-    for i, seg in enumerate(whisper_segs):
+    for idx, seg in enumerate(whisper_segs):
         text  = seg.get("text", "").strip()
         start = seg.get("start", 0)
         end   = seg.get("end",   0)
@@ -869,9 +925,27 @@ def assign_speakers_to_segments(whisper_segs, diarization, profiles,
 
             speaker_id = diar_to_char[diar_speaker]
         else:
-            # No diarization: assign based on segment index but LOCK it
-            # Same speakers tend to appear in runs, not alternating every line
-            speaker_id = keys[i % len(keys)]
+            # No diarization: Instead of alternating every segment (0,1,0,1...),
+            # FIX: Assign speakers in BLOCKS — run of similar segments goes to same character
+            # Simple heuristic: short pauses (< 1s gap) = same speaker continues
+            # Long pauses (> 1s) = possibly new speaker
+            if idx == 0:
+                speaker_id = keys[0]
+                assign_speakers_to_segments._last_speaker = keys[0]
+                assign_speakers_to_segments._last_end     = end
+                assign_speakers_to_segments._speaker_idx  = 0
+            else:
+                last_end    = getattr(assign_speakers_to_segments, '_last_end', 0)
+                last_spk    = getattr(assign_speakers_to_segments, '_last_speaker', keys[0])
+                spk_idx     = getattr(assign_speakers_to_segments, '_speaker_idx', 0)
+                gap         = start - last_end
+                # > 1.5s gap = speaker might have changed
+                if gap > 1.5 and len(keys) > 1:
+                    spk_idx = (spk_idx + 1) % len(keys)
+                speaker_id = keys[spk_idx]
+                assign_speakers_to_segments._last_speaker = speaker_id
+                assign_speakers_to_segments._last_end     = end
+                assign_speakers_to_segments._speaker_idx  = spk_idx
 
         profile = profiles.get(speaker_id, CharacterProfile(speaker_id))
         labeled.append({
@@ -948,8 +1022,11 @@ def tts_xtts(text, lang, sample, out):
 
 def synthesize_line(text, seg_info, profiles, target_lang, voice_samples, out):
     speaker_id = seg_info.get("speaker_id", "CHAR_00")
-    char_type  = seg_info.get("char_type",  "man")
-    sample     = voice_samples.get(speaker_id)
+    # FIX: Always get char_type from the live profile object (not stale seg_info dict)
+    # This ensures voice matches the actual CharacterProfile, not a cached/stale value
+    profile   = profiles.get(speaker_id)
+    char_type = profile.char_type if profile else seg_info.get("char_type", "man")
+    sample    = voice_samples.get(speaker_id)
 
     if sample and tts_xtts(text, target_lang, sample, out):
         print(f"[TTS] XTTS clone → {speaker_id} ({char_type})")
@@ -1211,6 +1288,19 @@ def run_wav2lip(video_path, audio_path, output_path, progress_callback=None):
         wav2lip_cwd = os.path.dirname(inf)
         env = os.environ.copy()
         env["PYTHONPATH"] = wav2lip_cwd + os.pathsep + env.get("PYTHONPATH", "")
+
+        # CPU vs GPU optimizations
+        # resize_factor=2 → CPU pe ~4x speed (half resolution process hogi)
+        # face_det_batch_size=4 → CPU ke liye safe batch size
+        # wav2lip_batch_size=32 → CPU ke liye optimized (default 128 CPU pe slow)
+        import torch as _torch
+        _is_cpu = not _torch.cuda.is_available()
+        _resize  = "2" if _is_cpu else "1"
+        _fd_bs   = "4" if _is_cpu else "16"
+        _w2l_bs  = "32" if _is_cpu else "128"
+        if _is_cpu:
+            print(f"[Wav2Lip] CPU mode: resize_factor={_resize}, fd_batch={_fd_bs}, w2l_batch={_w2l_bs}")
+
         r = subprocess.run(
             [sys.executable, inf,
              "--checkpoint_path", ck,
@@ -1218,10 +1308,13 @@ def run_wav2lip(video_path, audio_path, output_path, progress_callback=None):
              "--audio",  os.path.abspath(audio_path),
              "--outfile", os.path.abspath(output_path),
              "--pads", "0", "10", "0", "0",
-             "--resize_factor", "1", "--nosmooth"],
+             "--resize_factor", _resize,
+             "--face_det_batch_size", _fd_bs,
+             "--wav2lip_batch_size",  _w2l_bs,
+             "--nosmooth"],
             cwd=wav2lip_cwd, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, timeout=900
+            text=True, timeout=1800   # CPU pe zyada time diya (30 min)
         )
         if r.returncode == 0 and os.path.exists(output_path) and \
                 os.path.getsize(output_path) > 5000:
@@ -1389,6 +1482,14 @@ def process_video_pipeline(video_input, target_lang="en",
             speaker_gender_map=speaker_gender_map   # v6: pass gender map
         )
         print(f"[Pipeline] {len(labeled)} segments assigned")
+
+        # v6.2 FIX: Refresh char_type in each segment from the live profile
+        # (seg dict may have stale char_type if profile was updated after assignment)
+        for seg in labeled:
+            sid = seg.get("speaker_id")
+            if sid and sid in profiles:
+                seg["char_type"] = profiles[sid].char_type
+                seg["gender"]    = profiles[sid].gender_label
 
         from collections import Counter
         type_dist = Counter(s.get("char_type","?") for s in labeled)
